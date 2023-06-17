@@ -41,19 +41,25 @@ public:
             cerr << "Error reading database: " <<
                     e.what() << endl;
         }
+        return nullptr;
     }
 };
 struct userHistory{
-private:
     bool isCommited = false;
-public:
-    string from, to, receiver;
+    int sender_id, recipient_id;
+    string recipient_account, recipient_name, dateTime="-";
     float amount;
 
     userHistory* next = nullptr;
 
     void commit(dbConn* conn){
-
+        conn->execPreparedQuery("INSERT INTO user_history VALUES(NULL, ?, ?, ?, CURRENT_TIMESTAMP)", {to_string(sender_id),
+                                                                                                      to_string(recipient_id),
+                                                                                                      to_string(amount)});
+        isCommited = true;
+//        sql::ResultSet* res = conn->execPreparedQuery("SELECT * FROM user WHERE id=?", {to_string(recipient_id)});
+//        recipient_account = res->getString(5);
+//        recipient_name = res->getString(2);
     }
 };
 struct user{
@@ -72,7 +78,34 @@ public:
      }
     }
 
-    userHistory history;
+    userHistory* history = nullptr;
+
+    void addHistory(int sender_id, int recipient_id, float amount) {
+        if (!history) {
+            history = new userHistory();
+            history->sender_id = sender_id;
+            history->recipient_id = recipient_id;
+            history->amount = amount;
+        } else {
+            userHistory* aux = history;
+            while (aux->next) aux = aux->next;
+            userHistory* newNode = new userHistory();
+            newNode->sender_id = sender_id;
+            newNode->recipient_id = recipient_id;
+            newNode->amount = amount;
+            aux->next = newNode;
+        }
+    }
+
+    void commitUncommited(dbConn* conn){
+        if(history) {
+            userHistory *aux = history;
+            while (aux){
+                if(!aux->isCommited) aux->commit(conn);
+                aux = aux->next;
+            }
+        }
+    }
 };
 
 int main() {
@@ -92,8 +125,8 @@ int main() {
     }while(!isGranted);
     user _user(&conn, username, passwd);
 
-    int pilihan;
     do {
+        int pilihan = -1;
         do {
             system("clear");
             cout << "Welcome, " << _user.name << '\n' <<
@@ -143,7 +176,23 @@ int main() {
                                     {accountNum,
                                      to_string(amount), accountNum});
 
-                            //History commit
+                            time_t t = time(0);
+                            tm* now = localtime(&t);
+                            cout << "\t\tTransfer SUKSES\n" <<
+                                 "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
+                                 "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
+                                 "\tTanggal transaksi: \t\t" << now->tm_mday << '-' << now->tm_mon + 1 << '-' << now->tm_year + 1900 << '\n' << '\n' <<
+                                 "\tWaktu transaksi: \t\t" << now->tm_hour << ':' << now->tm_min << ':' << now->tm_sec << " WIB" << '\n' <<
+                                 "\tNomor Rekening Pengirim: \t" << _user.account << '\n' <<
+                                 "\tNama Pengirim: \t\t\t" << _user.name << '\n' <<
+                                 "\tNominal: \t\t\tIDR. " << amount << '\n' <<
+                                 "Tekan untuk lanjut...";
+                            char dummy; cin >> dummy;
+
+                            //history commit
+                            _user.addHistory(_user.id, res->getInt(1), amount);
+                            _user.commitUncommited(&conn);
+
                         }
                     } else {
                         system("clear");
