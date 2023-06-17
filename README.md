@@ -6,5 +6,5 @@ Tugas matakuliah struktur data
 |----|----------|----------|---------|---------|
 
 ### user_history
-| id | sender_id | recipient_id | amount | timestamp |
+| id | sender_id | recipient_id | amount | ts |
 |----|-----------|--------------|--------|-----------|
