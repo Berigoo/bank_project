@@ -1,5 +1,7 @@
 #include <iostream>
+#include "sstream"
 #include "ctime"
+#include "cmath"
 #include "mariadb/conncpp.hpp"
 
 using namespace std;
@@ -107,11 +109,18 @@ public:
         }
     }
 };
+string toReadable(string num){
+    int decimalPoint = num.length() - num.find('.');
+    int len = num.length()-decimalPoint;
+    for(int i=0; i<(int)(len-1)/3; i++){
+        num.insert(num.length()-decimalPoint-((i+1)*3)-i, ".");
+    }
+    return num;
+}
 
 int main() {
     dbConn conn("localhost", "guest", "p@ssword", "bank_project");
     conn.connInit();
-
     string username, passwd;
     bool isGranted = true;
     do{
@@ -140,7 +149,7 @@ int main() {
         } while (pilihan < 1 || pilihan > 4);
 
         switch (pilihan) {
-            case 1:
+            case 1: {
                 int feed;
                 do {
                     string accountNum;
@@ -155,19 +164,19 @@ int main() {
                         do {
                             cout << "Masukan nominal: (IDR 1 - IDR " << _user.balance << " ): ";
                             cin >> amount;
-                        }while(amount > _user.balance || amount < 1);
+                        } while (amount > _user.balance || amount < 1);
 
                         system("clear");
                         cout << "\t\tPreview\n" <<
-                                "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
-                                "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
-                                "\tNomor Rekening Pengirim: \t" << _user.account << '\n' <<
-                                "\tNama Pengirim: \t\t\t" << _user.name << '\n' <<
-                                "\tNominal: \t\t\tIDR. " << amount << '\n' <<
-                                "1. Masukan Ulang Rekening\n" <<
-                                "2. OK\n";
+                             "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
+                             "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
+                             "\tNomor Rekening Pengirim: \t" << _user.account << '\n' <<
+                             "\tNama Pengirim: \t\t\t" << _user.name << '\n' <<
+                             "\tNominal: \t\t\tIDR. " << amount << '\n' <<
+                             "1. Masukan Ulang Rekening\n" <<
+                             "2. OK\n";
                         cin >> feed;
-                        if(feed == 2) {
+                        if (feed == 2) {
                             _user.balance -= amount;
                             conn.execPreparedQuery("UPDATE user SET balance= ? WHERE id=?", {to_string(_user.balance),
                                                                                              to_string(_user.id)});
@@ -177,17 +186,20 @@ int main() {
                                      to_string(amount), accountNum});
 
                             time_t t = time(0);
-                            tm* now = localtime(&t);
+                            tm *now = localtime(&t);
                             cout << "\t\tTransfer SUKSES\n" <<
                                  "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
                                  "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
-                                 "\tTanggal transaksi: \t\t" << now->tm_mday << '-' << now->tm_mon + 1 << '-' << now->tm_year + 1900 << '\n' << '\n' <<
-                                 "\tWaktu transaksi: \t\t" << now->tm_hour << ':' << now->tm_min << ':' << now->tm_sec << " WIB" << '\n' <<
+                                 "\tTanggal transaksi: \t\t" << now->tm_mday << '-' << now->tm_mon + 1 << '-'
+                                 << now->tm_year + 1900 << '\n' << '\n' <<
+                                 "\tWaktu transaksi: \t\t" << now->tm_hour << ':' << now->tm_min << ':' << now->tm_sec
+                                 << " WIB" << '\n' <<
                                  "\tNomor Rekening Pengirim: \t" << _user.account << '\n' <<
                                  "\tNama Pengirim: \t\t\t" << _user.name << '\n' <<
                                  "\tNominal: \t\t\tIDR. " << amount << '\n' <<
                                  "Tekan untuk lanjut...";
-                            char dummy; cin >> dummy;
+                            char dummy;
+                            cin >> dummy;
 
                             //history commit
                             _user.addHistory(_user.id, res->getInt(1), amount);
@@ -197,13 +209,27 @@ int main() {
                     } else {
                         system("clear");
                         cout << "\tNomor rekening tidak ditemukan!\n" <<
-                                "\t1. Masukan ulang\n" <<
-                                "\t2. Kembali ke menu\n"; cin >> feed;
+                             "\t1. Masukan ulang\n" <<
+                             "\t2. Kembali ke menu\n";
+                        cin >> feed;
                     }
                 } while (feed == 1);
                 break;
-            case 2:
+            }
+            case 2: {
+                sql::ResultSet *res = conn.execPreparedQuery("SELECT balance FROM user WHERE id= ?",
+                                                             {to_string(_user.id)});
+                if(res->next()) {
+                    cout << "\t\tInformasi Saldo\n" <<
+                         "\tSaldo Anda: Rp. " << toReadable((string)res->getString(1)) << '\n' <<
+                         "Tekan untuk lanjut...";
+                    char dummy;cin >> dummy;
+                }else{
+                    cout << "Terjadi kesalahan internal!";
+                    char dummy;cin >> dummy;
+                }
                 break;
+            }
             case 3:
                 break;
             case 4:
