@@ -1,3 +1,9 @@
+#ifdef WINDOWS
+#define CLEAR "cls"
+#else
+#define CLEAR "clear"
+#endif
+
 #include <iostream>
 #include "sstream"
 #include "ctime"
@@ -6,6 +12,14 @@
 
 using namespace std;
 
+string toReadable(string num){
+    int decimalPoint = num.length() - num.find('.');
+    int len = num.length()-decimalPoint;
+    for(int i=0; i<(int)(len-1)/3; i++){
+        num.insert(num.length()-decimalPoint-((i+1)*3)-i, ".");
+    }
+    return num;
+}
 struct dbConn{
 private:
     sql::SQLString url;
@@ -55,13 +69,26 @@ struct userHistory{
     userHistory* next = nullptr;
 
     void commit(dbConn* conn){
-        conn->execPreparedQuery("INSERT INTO user_history VALUES(NULL, ?, ?, ?, CURRENT_TIMESTAMP)", {to_string(sender_id),
+        time_t t = time(0);
+        tm* now = localtime(&t);
+        string dateNow = to_string(now->tm_year+1900) + "-" + to_string(now->tm_mon+1) + "-" + to_string(now->tm_mday)
+                + " " + to_string(now->tm_hour) + ":" + to_string(now->tm_min) + ":" + to_string(now->tm_sec);
+        conn->execPreparedQuery("INSERT INTO user_history VALUES(NULL, ?, ?, ?, ?)", {to_string(sender_id),
                                                                                                       to_string(recipient_id),
-                                                                                                      to_string(amount)});
+                                                                                                      to_string(amount),
+                                                                                                      dateNow});
         isCommited = true;
-//        sql::ResultSet* res = conn->execPreparedQuery("SELECT * FROM user WHERE id=?", {to_string(recipient_id)});
-//        recipient_account = res->getString(5);
-//        recipient_name = res->getString(2);
+
+        sql::ResultSet* res = conn->execPreparedQuery("SELECT * FROM user WHERE id=?", {to_string(recipient_id)});
+        if(res->next()) {
+            recipient_account = res->getString(5);
+            recipient_name = res->getString(2);
+            dateTime = dateNow;
+        }
+    }
+    void print(){
+        cout << dateTime << "\t" << recipient_account << "\t\t" << recipient_name << "\t\t" << "Rp. " + toReadable(
+                to_string(amount)) << '\n';
     }
 };
 struct user{
@@ -81,6 +108,7 @@ public:
     }
 
     userHistory* history = nullptr;
+    static int historySize;
 
     void addHistory(int sender_id, int recipient_id, float amount) {
         if (!history) {
@@ -97,8 +125,30 @@ public:
             newNode->amount = amount;
             aux->next = newNode;
         }
+        user::historySize++;
     }
-
+    void addHistory(string date, string recipient_account, string recipient_name, string amount) {
+        if (!history) {
+            history = new userHistory();
+            history->recipient_account = recipient_account;
+            history->recipient_name = recipient_name;
+            history->amount = stof(amount);
+            history->dateTime = date;
+            history->isCommited = true;
+        } else {
+            userHistory *aux = history;
+            while (aux->next) aux = aux->next;
+            userHistory *newNode = new userHistory();
+            newNode->recipient_account = recipient_account;
+            newNode->recipient_name = recipient_name;
+            newNode->amount = stof(amount);
+            newNode->dateTime = date;
+            newNode->isCommited = true;
+            aux->next = newNode;
+        }
+        user::historySize++;
+        cout << user::historySize;
+    }
     void commitUncommited(dbConn* conn){
         if(history) {
             userHistory *aux = history;
@@ -108,15 +158,34 @@ public:
             }
         }
     }
-};
-string toReadable(string num){
-    int decimalPoint = num.length() - num.find('.');
-    int len = num.length()-decimalPoint;
-    for(int i=0; i<(int)(len-1)/3; i++){
-        num.insert(num.length()-decimalPoint-((i+1)*3)-i, ".");
+    void printHistory(){
+        int count = 0;
+        cout << "  Waktu\t\t\t   Rekening\t\t   Nama\t\t   Nominal\n";
+        if(history) {
+            userHistory *aux = history;
+            while (aux){
+                aux->print();
+                aux = aux->next;
+                count++;
+            }
+        }
+        cout << "\n\nTotal Entries: " << count << "\nTekan untuk lanjut..."; char dummy;cin >> dummy;
     }
-    return num;
-}
+    void dumpHistory(dbConn* conn){
+        sql::ResultSet* res = conn->execPreparedQuery("SELECT user.username, user.account_number, tmp.* FROM (SELECT * FROM user_history WHERE sender_id= ? UNION SELECT * FROM user_history WHERE recipient_id= ?) AS tmp INNER JOIN user ON tmp.recipient_id = user.id ORDER BY ts", {
+                to_string(id), to_string(id)});
+        int count = 0;
+        cout << count << " " << user::historySize;
+        while(res->next()){
+            count++;
+            if(count > user::historySize)
+                addHistory((string) res->getString(7), (string) res->getString(2), (string) res->getString(1),
+                           (string) res->getString(6));
+        }
+    }
+};
+
+int user::historySize;
 
 int main() {
     dbConn conn("localhost", "guest", "p@ssword", "bank_project");
@@ -124,7 +193,7 @@ int main() {
     string username, passwd;
     bool isGranted = true;
     do{
-        system("clear");
+        system(CLEAR);
         if(!isGranted) cout << "\tCredentials Salah!\n";
         cout << "\t\tHalaman Login\n" <<
                 "\t username: "; cin >> username;
@@ -133,11 +202,12 @@ int main() {
         if(res->next()) isGranted = res->getInt(1);
     }while(!isGranted);
     user _user(&conn, username, passwd);
-
+    user::historySize = 0;
     do {
+        _user.dumpHistory(&conn);
         int pilihan = -1;
         do {
-            system("clear");
+            system(CLEAR);
             cout << "Welcome, " << _user.name << '\n' <<
                  "\t\tMenu Pilihan\n" <<
                  "\t1. Transfer\n" <<
@@ -153,7 +223,7 @@ int main() {
                 int feed;
                 do {
                     string accountNum;
-                    system("clear");
+                    system(CLEAR);
                     cout << "\t\tTransfer\n" <<
                          "Silakan masukan nomor rekening yanag dituju:\n";
                     cin >> accountNum;
@@ -166,7 +236,7 @@ int main() {
                             cin >> amount;
                         } while (amount > _user.balance || amount < 1);
 
-                        system("clear");
+                        system(CLEAR);
                         cout << "\t\tPreview\n" <<
                              "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
                              "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
@@ -191,7 +261,7 @@ int main() {
                                  "\tNomor Rekening Tujuan: \t\t" << accountNum << '\n' <<
                                  "\tNama Rekening Tujuan: \t\t" << res->getString(2) << '\n' <<
                                  "\tTanggal transaksi: \t\t" << now->tm_mday << '-' << now->tm_mon + 1 << '-'
-                                 << now->tm_year + 1900 << '\n' << '\n' <<
+                                 << now->tm_year + 1900 << '\n' <<
                                  "\tWaktu transaksi: \t\t" << now->tm_hour << ':' << now->tm_min << ':' << now->tm_sec
                                  << " WIB" << '\n' <<
                                  "\tNomor Rekening Pengirim: \t" << _user.account << '\n' <<
@@ -207,7 +277,7 @@ int main() {
 
                         }
                     } else {
-                        system("clear");
+                        system(CLEAR);
                         cout << "\tNomor rekening tidak ditemukan!\n" <<
                              "\t1. Masukan ulang\n" <<
                              "\t2. Kembali ke menu\n";
@@ -231,6 +301,9 @@ int main() {
                 break;
             }
             case 3:
+                system(CLEAR);
+                cout << "\t\tInformasi History\n\n";
+                _user.printHistory();
                 break;
             case 4:
                 conn.connection->close();
