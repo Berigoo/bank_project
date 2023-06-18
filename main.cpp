@@ -12,18 +12,32 @@
 
 using namespace std;
 
-string toReadable(string num){
+string toReadable(string num) {
     int decimalPoint = num.length() - num.find('.');
-    int len = num.length()-decimalPoint;
-    for(int i=0; i<(int)(len-1)/3; i++){
-        num.insert(num.length()-decimalPoint-((i+1)*3)-i, ".");
+    int len = num.length() - decimalPoint;
+    for (int i = 0; i < (int) (len - 1) / 3; i++) {
+        num.insert(num.length() - decimalPoint - ((i + 1) * 3) - i, ".");
     }
     return num;
 }
-struct dbConn{
+string increment(string str){
+    for(int i=str.length(); i>0; i--){
+        int curr = (int)(str.at(i-1)-48);
+        if(curr < 9){
+            curr++;
+            str[i-1] = (char)(curr+48);
+            break;
+        }else{
+            str[i-1] = '0';
+        }
+    }
+    return str;
+}
+
+struct dbConn {
 private:
     sql::SQLString url;
-    sql::Driver* driver;
+    sql::Driver *driver;
 public:
     string host, db;
     sql::SQLString user, passwd;
@@ -39,75 +53,81 @@ public:
         driver = sql::mariadb::get_driver_instance();
     }
 
-    void connInit(){
+    void connInit() {
         connection = unique_ptr<sql::Connection>(driver->connect(url, user, passwd));
-        if(!connection){
+        if (!connection) {
             cerr << "Invalid database connection";
             exit(EXIT_FAILURE);
         }
     }
 
-    sql::ResultSet* execPreparedQuery(string statement, vector<string> values){
+    sql::ResultSet *execPreparedQuery(string statement, vector<string> values) {
         shared_ptr<sql::PreparedStatement> stmt(connection->prepareStatement(statement));
         try {
-            for (int i = 1; i <= values.size(); i++) stmt->setString(i, values[i-1]);
-            sql::ResultSet* tmp(stmt->executeQuery());
+            for (int i = 1; i <= values.size(); i++) stmt->setString(i, values[i - 1]);
+            sql::ResultSet *tmp(stmt->executeQuery());
             return tmp;
-        }catch(sql::SQLException &e) {
+        } catch (sql::SQLException &e) {
             cerr << "Error reading database: " <<
-                    e.what() << endl;
+                 e.what() << endl;
         }
         return nullptr;
     }
 };
-struct userHistory{
+
+struct userHistory {
     bool isCommited = false;
     int sender_id, recipient_id;
-    string recipient_account, recipient_name, dateTime="-";
+    string recipient_account, recipient_name, dateTime = "-";
     float amount;
 
-    userHistory* next = nullptr;
+    userHistory *next = nullptr;
 
-    void commit(dbConn* conn){
+    void commit(dbConn *conn) {
         time_t t = time(0);
-        tm* now = localtime(&t);
-        string dateNow = to_string(now->tm_year+1900) + "-" + to_string(now->tm_mon+1) + "-" + to_string(now->tm_mday)
+        tm *now = localtime(&t);
+        string dateNow =
+                to_string(now->tm_year + 1900) + "-" + to_string(now->tm_mon + 1) + "-" + to_string(now->tm_mday)
                 + " " + to_string(now->tm_hour) + ":" + to_string(now->tm_min) + ":" + to_string(now->tm_sec);
-        conn->execPreparedQuery("INSERT INTO user_history VALUES(NULL, ?, ?, ?, ?)", {to_string(sender_id),
-                                                                                                      to_string(recipient_id),
-                                                                                                      to_string(amount),
-                                                                                                      dateNow});
+        conn->execPreparedQuery("INSERT INTO user_history VALUES(NULL, ?, ?, ?, ?)", {
+                to_string(sender_id),
+                to_string(recipient_id),
+                to_string(amount),
+                dateNow});
         isCommited = true;
 
-        sql::ResultSet* res = conn->execPreparedQuery("SELECT * FROM user WHERE id=?", {to_string(recipient_id)});
-        if(res->next()) {
+        sql::ResultSet *res = conn->execPreparedQuery("SELECT * FROM user WHERE id=?", {to_string(recipient_id)});
+        if (res->next()) {
             recipient_account = res->getString(5);
             recipient_name = res->getString(2);
             dateTime = dateNow;
         }
     }
-    void print(){
+
+    void print() {
         cout << dateTime << "\t" << recipient_account << "\t\t" << recipient_name << "\t\t" << "Rp. " + toReadable(
                 to_string(amount)) << '\n';
     }
 };
-struct user{
+
+struct user {
 public:
     int id;
     string name, account;
     float balance;
 
-    user(dbConn* conn, string& username, string& password){
-     sql::ResultSet* res = conn->execPreparedQuery("SELECT * FROM user WHERE username= ? AND password= ? ", {username, password});
-     if(res->next()){
-         id = res->getInt(1);
-         name = res->getString(2);
-         balance = res->getFloat(4);
-         account = res->getString(5);
-     }
+    user(dbConn *conn, string &username, string &password) {
+        sql::ResultSet *res = conn->execPreparedQuery("SELECT * FROM user WHERE username= ? AND password= ? ",
+                                                      {username, password});
+        if (res->next()) {
+            id = res->getInt(1);
+            name = res->getString(2);
+            balance = res->getFloat(4);
+            account = res->getString(5);
+        }
     }
 
-    userHistory* history = nullptr;
+    userHistory *history = nullptr;
     static int historySize;
 
     void addHistory(int sender_id, int recipient_id, float amount) {
@@ -117,9 +137,9 @@ public:
             history->recipient_id = recipient_id;
             history->amount = amount;
         } else {
-            userHistory* aux = history;
+            userHistory *aux = history;
             while (aux->next) aux = aux->next;
-            userHistory* newNode = new userHistory();
+            userHistory *newNode = new userHistory();
             newNode->sender_id = sender_id;
             newNode->recipient_id = recipient_id;
             newNode->amount = amount;
@@ -127,6 +147,7 @@ public:
         }
         user::historySize++;
     }
+
     void addHistory(string date, string recipient_account, string recipient_name, string amount) {
         if (!history) {
             history = new userHistory();
@@ -147,38 +168,43 @@ public:
             aux->next = newNode;
         }
         user::historySize++;
-        cout << user::historySize;
     }
-    void commitUncommited(dbConn* conn){
-        if(history) {
+
+    void commitUncommited(dbConn *conn) {
+        if (history) {
             userHistory *aux = history;
-            while (aux){
-                if(!aux->isCommited) aux->commit(conn);
+            while (aux) {
+                if (!aux->isCommited) aux->commit(conn);
                 aux = aux->next;
             }
         }
     }
-    void printHistory(){
+
+    void printHistory() {
         int count = 0;
         cout << "  Waktu\t\t\t   Rekening\t\t   Nama\t\t   Nominal\n";
-        if(history) {
+        if (history) {
             userHistory *aux = history;
-            while (aux){
+            while (aux) {
                 aux->print();
                 aux = aux->next;
                 count++;
             }
         }
-        cout << "\n\nTotal Entries: " << count << "\nTekan untuk lanjut..."; char dummy;cin >> dummy;
+        cout << "\n\nTotal Entries: " << count << "\nTekan untuk lanjut...";
+        char dummy;
+        cin >> dummy;
     }
-    void dumpHistory(dbConn* conn){
-        sql::ResultSet* res = conn->execPreparedQuery("SELECT user.username, user.account_number, tmp.* FROM (SELECT * FROM user_history WHERE sender_id= ? UNION SELECT * FROM user_history WHERE recipient_id= ?) AS tmp INNER JOIN user ON tmp.recipient_id = user.id ORDER BY ts", {
-                to_string(id), to_string(id)});
+
+    void dumpHistory(dbConn *conn) {
+        sql::ResultSet *res = conn->execPreparedQuery(
+                "SELECT user.username, user.account_number, tmp.* FROM (SELECT * FROM user_history WHERE sender_id= ? UNION SELECT * FROM user_history WHERE recipient_id= ?) AS tmp INNER JOIN user ON tmp.recipient_id = user.id ORDER BY ts",
+                {
+                        to_string(id), to_string(id)});
         int count = 0;
-        cout << count << " " << user::historySize;
-        while(res->next()){
+        while (res->next()) {
             count++;
-            if(count > user::historySize)
+            if (count > user::historySize)
                 addHistory((string) res->getString(7), (string) res->getString(2), (string) res->getString(1),
                            (string) res->getString(6));
         }
@@ -192,15 +218,48 @@ int main() {
     conn.connInit();
     string username, passwd;
     bool isGranted = true;
-    do{
-        system(CLEAR);
-        if(!isGranted) cout << "\tCredentials Salah!\n";
-        cout << "\t\tHalaman Login\n" <<
-                "\t username: "; cin >> username;
-        cout << "\t password: "; cin >> passwd;
-        sql::ResultSet* res = conn.execPreparedQuery("SELECT COUNT(1) FROM user WHERE username= ? AND password= ?", {username, passwd});
-        if(res->next()) isGranted = res->getInt(1);
-    }while(!isGranted);
+    int pilihan;
+    do {
+        cout << "\t\tSelamat Datang\n" <<
+             "\t1. Login\n" <<
+             "\t2. Register\n" <<
+             "Pilihan: ";
+        cin >> pilihan;
+    }while(pilihan < 1 || pilihan > 2);
+    if(pilihan == 1) {
+        do {
+            system(CLEAR);
+            if (!isGranted) cout << "\tCredentials Salah!\n";
+            cout << "\t\tHalaman Login\n" <<
+                 "\t username: ";
+            cin >> username;
+            cout << "\t password: ";
+            cin >> passwd;
+            sql::ResultSet *res = conn.execPreparedQuery("SELECT COUNT(2) FROM user WHERE username= ? AND password= ?",
+                                                         {username, passwd});
+            if (res->next()) isGranted = res->getInt(1);
+        } while (!isGranted);
+    }else if(pilihan == 2){
+        bool done = false;
+        do{
+            cout << "\t\tHalaman Register\n" <<
+                    "\tMasukan username (no-space): ";
+            cin >> username;
+            cout << "\tMasukan password (no-space): ";
+            cin >> passwd;
+
+            sql::ResultSet* res = conn.execPreparedQuery("SELECT account_number FROM user ORDER BY id DESC LIMIT 1", {});
+            if(res->next()){
+                increment((string)res->getString(1));
+                conn.execPreparedQuery("INSERT INTO user VALUES(NULL, ?, ?, 0, ?)", {username, passwd, increment((string)res->getString(1))});
+            }else{
+                system(CLEAR);
+                cout << "Registrasi gagal, kesalahan Internal\n\n";
+                continue;
+            }
+            done = true;
+        }while(!done);
+    }
     user _user(&conn, username, passwd);
     user::historySize = 0;
     do {
@@ -248,12 +307,14 @@ int main() {
                         cin >> feed;
                         if (feed == 2) {
                             _user.balance -= amount;
-                            conn.execPreparedQuery("UPDATE user SET balance= ? WHERE id=?", {to_string(_user.balance),
-                                                                                             to_string(_user.id)});
+                            conn.execPreparedQuery("UPDATE user SET balance= ? WHERE id=?", {
+                                    to_string(_user.balance),
+                                    to_string(_user.id)});
                             conn.execPreparedQuery(
                                     "UPDATE user SET balance=(SELECT balance FROM user WHERE account_number= ?) + ? WHERE account_number= ?",
-                                    {accountNum,
-                                     to_string(amount), accountNum});
+                                    {
+                                            accountNum,
+                                            to_string(amount), accountNum});
 
                             time_t t = time(0);
                             tm *now = localtime(&t);
@@ -289,14 +350,16 @@ int main() {
             case 2: {
                 sql::ResultSet *res = conn.execPreparedQuery("SELECT balance FROM user WHERE id= ?",
                                                              {to_string(_user.id)});
-                if(res->next()) {
+                if (res->next()) {
                     cout << "\t\tInformasi Saldo\n" <<
-                         "\tSaldo Anda: Rp. " << toReadable((string)res->getString(1)) << '\n' <<
+                         "\tSaldo Anda: Rp. " << toReadable((string) res->getString(1)) << '\n' <<
                          "Tekan untuk lanjut...";
-                    char dummy;cin >> dummy;
-                }else{
+                    char dummy;
+                    cin >> dummy;
+                } else {
                     cout << "Terjadi kesalahan internal!";
-                    char dummy;cin >> dummy;
+                    char dummy;
+                    cin >> dummy;
                 }
                 break;
             }
